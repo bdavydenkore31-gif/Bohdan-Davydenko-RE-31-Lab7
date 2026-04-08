@@ -12,7 +12,7 @@
   * This software is licensed under terms that can be found in the LICENSE file
   * in the root directory of this software component.
   * If no LICENSE file comes with this software, it is provided AS-IS.
-  *PA5 зелений світлодіод
+  *Світлодіоди PA5 - зелений PA9 - блакитний PB2 - червоний
   ******************************************************************************
   */
 /* USER CODE END Header */
@@ -22,7 +22,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include <stdio.h>
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -41,33 +41,28 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-TIM_HandleTypeDef htim2;
-
-osThreadId MainTaskHandle;
+osThreadId defaultTaskHandle;
+uint32_t receivedDelay = 400;
 /* USER CODE BEGIN PV */
-QueueHandle_t buttonPushQueue;
-//uint32_t currState = 1;
-//uint32_t prevState = ;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
-static void MX_TIM2_Init(void);
-void PwmControlTask(void const * argument);
+void StartDefaultTask(void const * argument);
 
 /* USER CODE BEGIN PFP */
-void PwmControl(void * argument);
+void Led1Blink(void * argument);
+void Led2Blink(void * argument);
+void Led3Blink(void * argument);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-int _write(int file, char *ptr, int len) {
-    for (int i = 0; i < len; i++) {
-        ITM_SendChar(*ptr++);
-    }
-    return len;
-}
+QueueHandle_t delayQueue;
+
+
 /* USER CODE END 0 */
 
 /**
@@ -99,9 +94,8 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
-  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
+
   /* USER CODE END 2 */
 
   /* USER CODE BEGIN RTOS_MUTEX */
@@ -117,19 +111,21 @@ int main(void)
   /* USER CODE END RTOS_TIMERS */
 
   /* USER CODE BEGIN RTOS_QUEUES */
-  buttonPushQueue = xQueueCreate(1, sizeof(uint8_t));
-
+  delayQueue = xQueueCreate(1, sizeof(uint8_t));
   /* add queues, ... */
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
-  /* definition and creation of MainTask */
-  osThreadDef(MainTask, PwmControlTask, osPriorityNormal, 0, 128);
-  MainTaskHandle = osThreadCreate(osThread(MainTask), NULL);
+  /* definition and creation of defaultTask */
+  osThreadDef(defaultTask, StartDefaultTask, osPriorityNormal, 0, 128);
+  defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
-  xTaskCreate(PwmControl, "PWM_Task", 128, NULL, 1, NULL);
   /* add threads, ... */
+  xTaskCreate(Led1Blink, "Led1Blink", 128, NULL, 1, NULL);
+  xTaskCreate(Led2Blink, "Led1Blink", 128, NULL, 1, NULL);
+  xTaskCreate(Led3Blink, "Led1Blink", 128, NULL, 1, NULL);
+
   /* USER CODE END RTOS_THREADS */
 
   /* Start scheduler */
@@ -190,55 +186,6 @@ void SystemClock_Config(void)
 }
 
 /**
-  * @brief TIM2 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_TIM2_Init(void)
-{
-
-  /* USER CODE BEGIN TIM2_Init 0 */
-
-  /* USER CODE END TIM2_Init 0 */
-
-  TIM_MasterConfigTypeDef sMasterConfig = {0};
-  TIM_OC_InitTypeDef sConfigOC = {0};
-
-  /* USER CODE BEGIN TIM2_Init 1 */
-
-  /* USER CODE END TIM2_Init 1 */
-  htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 15999;
-  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 19;
-  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_PWM_Init(&htim2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
-  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 0;
-  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
-  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
-  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN TIM2_Init 2 */
-
-  /* USER CODE END TIM2_Init 2 */
-  HAL_TIM_MspPostInit(&htim2);
-
-}
-
-/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -252,14 +199,34 @@ static void MX_GPIO_Init(void)
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOC_CLK_ENABLE();
-  __HAL_RCC_GPIOH_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5|GPIO_PIN_9, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_2, GPIO_PIN_RESET);
 
   /*Configure GPIO pin : PC13 */
   GPIO_InitStruct.Pin = GPIO_PIN_13;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : PA5 PA9 */
+  GPIO_InitStruct.Pin = GPIO_PIN_5|GPIO_PIN_9;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PB2 */
+  GPIO_InitStruct.Pin = GPIO_PIN_2;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
   HAL_NVIC_SetPriority(EXTI15_10_IRQn, 5, 0);
@@ -271,53 +238,78 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
-	if (GPIO_Pin == GPIO_PIN_13){
-
-		uint8_t buttonSignal = 1;
-
-		xQueueSendFromISR(buttonPushQueue, &buttonSignal, NULL);
-
-	}
-}
-
-void PwmControl(void * argument){
-
-	uint8_t duty = 10;
-	uint8_t receivedSignal;
-
-	uint32_t arr = __HAL_TIM_GET_AUTORELOAD(&htim2);
-
-	__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1,  (duty * arr)/100 );
-
+void Led1Blink(void * argument){
+	//частота 1 Гц
+	//(тривалість 400 мс)
+	uint8_t trigger;
 	for(;;){
-		if (xQueueReceive(buttonPushQueue, &receivedSignal, portMAX_DELAY) == pdPASS){
 
-			vTaskDelay(pdMS_TO_TICKS(200));
+			if (xQueueReceive(delayQueue, &trigger, 0) == pdPASS){
 
-			duty+=10;
+				receivedDelay += 100;
 
-			if (duty > 90){
-				duty = 10;
+				if (receivedDelay > 1000){
+					receivedDelay = 400;
+				}
+
 			}
 
-			printf("Duty cycle: %d%%\n", duty);
+			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
+			vTaskDelay(receivedDelay);
+			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
+			vTaskDelay(1000 - receivedDelay);
 
-			__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1,  (duty * arr)/100 );
+
 
 		}
+
+}
+
+void Led2Blink(void * argument){
+	//частота 0.25 Гц
+	//(тривалість 1 мс)
+	for(;;){
+		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_2, GPIO_PIN_SET);
+		vTaskDelay(1000);
+		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_2, GPIO_PIN_RESET);
+		vTaskDelay(3000);
+	}
+
+}
+
+void Led3Blink(void * argument){
+	//частота 0.1 Гц
+	//(тривалість 400 мс до 1с)
+
+	for(;;){
+
+		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_SET);
+		vTaskDelay(2000);
+		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_RESET);
+		vTaskDelay(8000);
+
 	}
 }
+
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
+  	if (GPIO_Pin == GPIO_PIN_13){
+
+  		uint8_t triggerSignal = 1;
+
+  		xQueueSendFromISR(delayQueue, &triggerSignal, NULL);
+
+  	}
+  }
 /* USER CODE END 4 */
 
-/* USER CODE BEGIN Header_PwmControlTask */
+/* USER CODE BEGIN Header_StartDefaultTask */
 /**
-  * @brief  Function implementing the MainTask thread.
+  * @brief  Function implementing the defaultTask thread.
   * @param  argument: Not used
   * @retval None
   */
-/* USER CODE END Header_PwmControlTask */
-void PwmControlTask(void const * argument)
+/* USER CODE END Header_StartDefaultTask */
+void StartDefaultTask(void const * argument)
 {
   /* USER CODE BEGIN 5 */
   /* Infinite loop */
@@ -346,6 +338,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     HAL_IncTick();
   }
   /* USER CODE BEGIN Callback 1 */
+
 
   /* USER CODE END Callback 1 */
 }
