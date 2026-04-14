@@ -42,7 +42,6 @@
 
 /* Private variables ---------------------------------------------------------*/
 osThreadId defaultTaskHandle;
-uint32_t receivedDelay = 400;
 /* USER CODE BEGIN PV */
 
 /* USER CODE END PV */
@@ -199,6 +198,7 @@ static void MX_GPIO_Init(void)
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOC_CLK_ENABLE();
+  __HAL_RCC_GPIOH_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
@@ -241,6 +241,7 @@ static void MX_GPIO_Init(void)
 void Led1Blink(void * argument){
 	//частота 1 Гц
 	//(тривалість 400 мс)
+	uint32_t receivedDelay = 400;
 	uint8_t trigger;
 	for(;;){
 
@@ -251,16 +252,12 @@ void Led1Blink(void * argument){
 				if (receivedDelay > 1000){
 					receivedDelay = 400;
 				}
-
 			}
 
 			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
 			vTaskDelay(receivedDelay);
 			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
 			vTaskDelay(1000 - receivedDelay);
-
-
-
 		}
 
 }
@@ -287,7 +284,6 @@ void Led3Blink(void * argument){
 		vTaskDelay(2000);
 		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_RESET);
 		vTaskDelay(8000);
-
 	}
 }
 
@@ -296,7 +292,15 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 
   		uint8_t triggerSignal = 1;
 
-  		xQueueSendFromISR(delayQueue, &triggerSignal, NULL);
+  		static uint32_t last_interrupt_time = 0;
+  		uint32_t interrupt_time = xTaskGetTickCountFromISR();
+
+  		if (interrupt_time - last_interrupt_time > pdMS_TO_TICKS(50)) {
+
+  			xQueueSendFromISR(delayQueue, &triggerSignal, NULL);
+  		}
+  		last_interrupt_time = interrupt_time;
+
 
   	}
   }
